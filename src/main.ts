@@ -13,6 +13,13 @@ async function bootstrap() {
 
   app.useGlobalPipes(new ValidationPipe());
 
+   // Habilitar CORS
+   app.enableCors({
+    origin: ['https://khoalaibr.github.io'], // Dominios permitidos
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Métodos permitidos
+    credentials: true, // Permitir cookies o credenciales
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`Application is running on: ${await app.getUrl()}`);
