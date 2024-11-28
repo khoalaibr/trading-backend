@@ -1,5 +1,6 @@
 // src/market/market.controller.ts
-import { Controller, Get, Query, UsePipes, ValidationPipe } from '@nestjs/common';
+
+import { Controller, Get, Query } from '@nestjs/common';
 import { MarketService } from './market.service';
 import { GetSignalsDto } from './dto/get-signals.dto';
 import { GetDailySignalsDto } from './dto/get-daily-signals.dto';
@@ -10,18 +11,22 @@ export class MarketController {
   constructor(private readonly marketService: MarketService) {}
 
   @Get('signals')
-  getSignals(@Query() query: GetSignalsDto) {
-    return this.marketService.getStockData(query.ticker);
+  async getSignals(@Query() query: GetSignalsDto) {
+    const { ticker } = query;
+    const isB3 = ticker.endsWith('.SA'); // Verificar si es una acción de B3
+    return this.marketService.getHistoricalData(ticker, isB3);
   }
 
   @Get('daily-signals')
-  getDailySignals(@Query() query: GetDailySignalsDto) {
-    const tickerList = query.tickers.split(',').map((ticker) => ticker.trim().toUpperCase());
+  async getDailySignals(@Query() query: GetDailySignalsDto) {
+    const tickerList = query.tickers
+      .split(',')
+      .map((ticker) => ticker.trim().toUpperCase());
     return this.marketService.getDailySignals(tickerList);
   }
 
   @Get('backtest')
-  runBacktest(@Query() query: RunBacktestDto) {
+  async runBacktest(@Query() query: RunBacktestDto) {
     const {
       tickers,
       initialAmount,
@@ -33,7 +38,9 @@ export class MarketController {
       sl = '0.03',
     } = query;
 
-    const tickerList = tickers.split(',').map((ticker) => ticker.trim().toUpperCase());
+    const tickerList = tickers
+      .split(',')
+      .map((ticker) => ticker.trim().toUpperCase());
     const amount = parseFloat(initialAmount);
     const takeProfit = parseFloat(tp);
     const stopLoss = parseFloat(sl);

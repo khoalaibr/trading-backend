@@ -1,4 +1,5 @@
 // main.ts
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as dotenv from 'dotenv';
@@ -13,9 +14,9 @@ async function bootstrap() {
 
   app.useGlobalPipes(new ValidationPipe());
 
-   // Habilitar CORS
-   app.enableCors({
-    origin: ['https://khoalaibr.github.io'], // Dominios permitidos
+  // Habilitar CORS
+  app.enableCors({
+    origin: ['https://khoalaibr.github.io', 'http://localhost:5173'], // Dominios permitidos
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Métodos permitidos
     credentials: true, // Permitir cookies o credenciales
   });
@@ -25,4 +26,5 @@ async function bootstrap() {
   console.log(`Application is running on: ${await app.getUrl()}`);
 }
 bootstrap();
+
 
