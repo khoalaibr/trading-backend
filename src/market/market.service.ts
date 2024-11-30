@@ -80,49 +80,40 @@ export class MarketService {
   async getHistoricalDataFromBrapi(ticker: string): Promise<any> {
     const url = `https://brapi.dev/api/quote/${ticker}`;
     try {
-      // Opcional: imprimir la URL y los parámetros para depuración
-      console.log('Solicitando a BRAPI con URL:', url);
-      console.log('Parámetros:', {
-        range: '1mo',
-        interval: '1d',
-        fundamental: 'false',
-        token: process.env.BRAPI_TOKEN, // Cambiado 'apikey' a 'token'
-      });
-  
       const response = await axios.get(url, {
         params: {
           range: '1mo',
           interval: '1d',
           fundamental: 'false',
-          token: process.env.BRAPI_TOKEN, // Cambiado 'apikey' a 'token'
+          token: process.env.BRAPI_TOKEN,
         },
       });
-  
+
       const data = response.data;
-  
+
       if (!data || !data.results || data.results.length === 0) {
         throw new Error(`No hay datos disponibles para ${ticker} en BRAPI.`);
       }
-  
+
       const quotes = data.results[0].historicalDataPrice;
       if (!quotes || quotes.length === 0) {
         throw new Error(
           `No hay datos históricos disponibles para ${ticker} en BRAPI.`,
         );
       }
-  
+
       const historicalData = quotes
         .map((quote) => ({
           date: new Date(quote.date),
           price: quote.close,
         }))
-        .sort((a, b) => b.date.getTime() - a.date.getTime());
-  
+        .sort((a, b) => a.date.getTime() - b.date.getTime()); // Orden ascendente
+
       const currentPrice = data.results[0].regularMarketPrice;
       const lastDate = data.results[0].regularMarketTime
         ? new Date(data.results[0].regularMarketTime)
         : new Date();
-  
+
       return {
         historicalData,
         currentPrice,
@@ -143,8 +134,6 @@ export class MarketService {
       );
     }
   }
-  
-  
 
   async getHistoricalDataFromYahoo(
     ticker: string,
@@ -170,10 +159,10 @@ export class MarketService {
           date: item.date,
           price: item.close,
         }))
-        .sort((a, b) => b.date.getTime() - a.date.getTime());
+        .sort((a, b) => a.date.getTime() - b.date.getTime()); // Orden ascendente
 
-      const currentPrice = data[0].close;
-      const lastDate = data[0].date;
+      const currentPrice = data[data.length - 1].close;
+      const lastDate = data[data.length - 1].date;
 
       return {
         historicalData,
@@ -205,10 +194,10 @@ export class MarketService {
       );
     }
     const intervalCasted = interval as Interval;
-
+  
     for (const ticker of tickers) {
       const isB3 = ticker.endsWith('.SA');
-
+  
       const { historicalData } = isB3
         ? await this.getHistoricalDataFromBrapi(ticker)
         : await this.getHistoricalDataFromYahoo(
@@ -217,7 +206,9 @@ export class MarketService {
             new Date(endDate),
             intervalCasted,
           );
-
+  
+      console.log(`Ticker: ${ticker}, Historical Data Points: ${historicalData.length}`);
+  
       if (!historicalData || historicalData.length === 0) {
         results.push({
           ticker,
@@ -225,15 +216,15 @@ export class MarketService {
         });
         continue;
       }
-
+  
       let balance = initialAmount;
       let openPosition = null;
       const operations = [];
-
+  
       for (let i = 0; i < historicalData.length; i++) {
         const { price, date } = historicalData[i];
-        const slicedData = historicalData.slice(i).map((d) => d.price);
-
+        const slicedData = historicalData.slice(0, i + 1).map((d) => d.price);
+  
         let signals;
         if (strategy === 'indicators') {
           signals = IndicatorsStrategy.analyzeSignals(slicedData);
@@ -242,51 +233,75 @@ export class MarketService {
         } else {
           signals = { buy: false, sell: false };
         }
-
+  
+        console.log(`Date: ${date}, Price: ${price}, Buy: ${signals.buy}, Sell: ${signals.sell}`);
+  
         if (!openPosition && signals.buy) {
           const shares = Math.floor(balance / price);
-          openPosition = { type: 'buy', price, date, shares };
-        } else if (openPosition) {
-          const currentProfit = (price - openPosition.price) / openPosition.price;
-
-          if (
-            (strategy === 'tp_sl' &&
-              (currentProfit >= takeProfit || currentProfit <= -stopLoss)) ||
-            (strategy === 'indicators' && signals.sell)
-          ) {
-            const profit = (price - openPosition.price) * openPosition.shares;
-            balance += profit;
-            operations.push({
-              type: 'sell',
-              openDate: openPosition.date,
-              closeDate: date,
-              entryPrice: openPosition.price,
-              exitPrice: price,
-              shares: openPosition.shares,
-              profit,
-            });
-            openPosition = null;
+          if (shares > 0) {
+            openPosition = { type: 'buy', price, date, shares };
+            balance -= shares * price;
           }
+        } else if (openPosition && signals.sell) {
+          const profit = (price - openPosition.price) * openPosition.shares;
+          balance += openPosition.shares * price;
+          operations.push({
+            type: 'trade',
+            openDate: openPosition.date,
+            closeDate: date,
+            entryPrice: openPosition.price,
+            exitPrice: price,
+            shares: openPosition.shares,
+            profit: profit.toFixed(2),
+            percentageChange: (((price - openPosition.price) / openPosition.price) * 100).toFixed(2),
+            holdingPeriod: Math.ceil(
+              (date.getTime() - openPosition.date.getTime()) / (1000 * 60 * 60 * 24),
+            ),
+          });
+          openPosition = null;
         }
       }
-
-      const totalProfit = operations.reduce((acc, op) => acc + op.profit, 0);
-
+  
+      if (openPosition) {
+        const lastPrice = historicalData[historicalData.length - 1].price;
+        const lastDate = historicalData[historicalData.length - 1].date;
+        const profit = (lastPrice - openPosition.price) * openPosition.shares;
+        operations.push({
+          type: 'open',
+          openDate: openPosition.date,
+          closeDate: lastDate,
+          entryPrice: openPosition.price,
+          exitPrice: lastPrice,
+          shares: openPosition.shares,
+          profit: profit.toFixed(2),
+          percentageChange: (((lastPrice - openPosition.price) / openPosition.price) * 100).toFixed(2),
+          holdingPeriod: Math.ceil(
+            (lastDate.getTime() - openPosition.date.getTime()) / (1000 * 60 * 60 * 24),
+          ),
+        });
+        balance += openPosition.shares * lastPrice;
+        openPosition = null;
+      }
+  
+      const totalProfit = balance - initialAmount;
+      const successfulTrades = operations.filter(
+        (op) => op.type === 'trade' && parseFloat(op.percentageChange) > 0,
+      ).length;
+      const totalTrades = operations.filter((op) => op.type === 'trade').length;
+      const successRate =
+        totalTrades > 0 ? ((successfulTrades / totalTrades) * 100).toFixed(2) : '0.00';
+  
       results.push({
         ticker,
-        initialAmount,
-        finalAmount: balance.toFixed(2),
-        totalOperations: operations.length,
         totalProfit: totalProfit.toFixed(2),
-        successfulOperations: operations.filter((op) => op.profit > 0).length,
-        successRate: (
-          (operations.filter((op) => op.profit > 0).length / operations.length) *
-          100
-        ).toFixed(2),
+        totalProfitPercentage: ((totalProfit / initialAmount) * 100).toFixed(2),
+        totalOperations: totalTrades,
+        successRate,
         operations,
       });
     }
-
+  
     return results;
   }
+  
 }
