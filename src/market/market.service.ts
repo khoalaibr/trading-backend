@@ -120,7 +120,7 @@ export class MarketService {
   
       const currentPrice = data.results[0].regularMarketPrice;
       const lastDate = data.results[0].regularMarketTime
-        ? new Date(data.results[0].regularMarketTime * 1000)
+        ? new Date(data.results[0].regularMarketTime)
         : new Date();
   
       return {
@@ -143,6 +143,7 @@ export class MarketService {
       );
     }
   }
+  
   
 
   async getHistoricalDataFromYahoo(
