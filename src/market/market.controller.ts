@@ -1,5 +1,4 @@
 // src/market/market.controller.ts
-
 import { Controller, Get, Query } from '@nestjs/common';
 import { MarketService } from './market.service';
 import { GetSignalsDto } from './dto/get-signals.dto';
@@ -27,33 +26,23 @@ export class MarketController {
 
   @Get('backtest')
   async runBacktest(@Query() query: RunBacktestDto) {
+    console.log('Parametros recibidos para el Backtest:', query);
     const {
       tickers,
-      initialAmount,
-      startDate,
-      endDate,
+      range = '1mo',
       interval = '1d',
       strategy = 'indicators',
-      tp = '0.05',
-      sl = '0.03',
     } = query;
 
     const tickerList = tickers
       .split(',')
       .map((ticker) => ticker.trim().toUpperCase());
-    const amount = parseFloat(initialAmount);
-    const takeProfit = parseFloat(tp);
-    const stopLoss = parseFloat(sl);
 
     return this.marketService.runBacktest(
       tickerList,
-      amount,
-      startDate,
-      endDate,
+      range,
       interval,
       strategy,
-      takeProfit,
-      stopLoss,
     );
   }
 }

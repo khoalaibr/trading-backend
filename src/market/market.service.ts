@@ -1,10 +1,7 @@
 // src/market/market.service.ts
-
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
-import yahooFinance from 'yahoo-finance2';
-import { IndicatorsStrategy } from './strategies/indicators.strategy';
-import { LongShortStrategy } from './strategies/long-short.strategy';
+import IndicatorsStrategy from './strategies/indicators.strategy';
 
 type Interval = '1d' | '1wk' | '1mo';
 
@@ -14,9 +11,150 @@ export class MarketService {
 
   constructor() {
     // Supresión opcional de logs
-    // yahooFinance.options.logger = () => {};
   }
 
+  async runBacktest(
+    tickers: string[],
+    range: string,
+    interval: string,
+    strategy: string,
+  ): Promise<any[]> {
+    const results = [];
+    for (const ticker of tickers) {
+      try {
+        const isB3 = ticker.endsWith('.SA');
+        const { historicalData } = await this.getHistoricalDataFromBrapi(
+          ticker,
+          range,
+          interval,
+        );
+
+        console.log(`[runBacktest] Ticker: ${ticker}, Historical Data Points: ${historicalData.length}`);
+
+        // Ajuste: Mínimo de datos históricos requerido
+        if (!historicalData || historicalData.length < 15) {
+          results.push({
+            ticker,
+            message: 'Datos insuficientes para el backtest. Se necesitan al menos 15 datos históricos.',
+          });
+          continue;
+        }
+
+        let openPosition = null;
+        const operations = [];
+
+        for (let i = 0; i < historicalData.length; i++) {
+          const { price, date } = historicalData[i];
+          const slicedData = historicalData.slice(0, i + 1).map((d) => d.price);
+
+          let signals;
+          if (strategy === 'indicators') {
+            signals = IndicatorsStrategy.analyzeSignals(slicedData);
+          } else {
+            signals = { buy: false, sell: false };
+          }
+
+          if (!openPosition && signals.buy) {
+            openPosition = { type: 'buy', price, date };
+            console.log(`[runBacktest] Buy executed for ${ticker} on ${date}, Price: ${price}`);
+          } else if (openPosition && signals.sell) {
+            const profit = price - openPosition.price;
+            operations.push({
+              type: 'trade',
+              openDate: openPosition.date,
+              closeDate: date,
+              entryPrice: openPosition.price,
+              exitPrice: price,
+              profit: profit.toFixed(2),
+              percentageChange: (((price - openPosition.price) / openPosition.price) * 100).toFixed(2),
+            });
+            console.log(`[runBacktest] Sell executed for ${ticker} on ${date}, Price: ${price}, Profit: ${profit.toFixed(2)}`);
+            openPosition = null;
+          }
+        }
+
+        if (openPosition) {
+          const lastPrice = historicalData[historicalData.length - 1].price;
+          const lastDate = historicalData[historicalData.length - 1].date;
+          const profit = lastPrice - openPosition.price;
+          operations.push({
+            type: 'open',
+            openDate: openPosition.date,
+            closeDate: lastDate,
+            entryPrice: openPosition.price,
+            exitPrice: lastPrice,
+            profit: profit.toFixed(2),
+            percentageChange: (((lastPrice - openPosition.price) / openPosition.price) * 100).toFixed(2),
+          });
+          console.log(`[runBacktest] Closing position for ${ticker} on ${lastDate}, Price: ${lastPrice}, Profit: ${profit.toFixed(2)}`);
+          openPosition = null;
+        }
+
+        results.push({
+          ticker,
+          operations,
+        });
+      } catch (error) {
+        results.push({
+          ticker,
+          message: `Error al obtener datos para ${ticker}: ${error.message}`,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async getDailySignals(tickers: string[]): Promise<any[]> {
+    const results = [];
+
+    for (const ticker of tickers) {
+      try {
+        const isB3 = ticker.endsWith('.SA');
+
+        const { historicalData, currentPrice, lastDate } = isB3
+          ? await this.getHistoricalDataFromBrapi(
+              ticker,
+              '3mo',  // Intentando obtener más datos históricos para asegurar un análisis suficiente
+              '1d',
+            )
+          : (() => { throw new Error('Funcionalidad no implementada para Yahoo Finance') })();
+
+        console.log(`[getDailySignals] Ticker: ${ticker}, Historical Data:`, historicalData);
+        console.log(`[getDailySignals] Ticker: ${ticker}, Current Price:`, currentPrice);
+
+        // Ajuste: Verificamos si tenemos al menos 15 datos históricos
+        if (!historicalData || historicalData.length < 15) {
+          results.push({
+            ticker,
+            message: isB3
+              ? 'BRAPI puede tener datos limitados para esta acción brasileña.'
+              : 'Datos insuficientes para el análisis.',
+          });
+          continue;
+        }
+
+        const prices = [...historicalData.map((d) => d.price), currentPrice];
+        const signals = IndicatorsStrategy.analyzeSignals(prices);
+
+        results.push({
+          ticker,
+          buy: signals.buy,
+          sell: signals.sell,
+          currentPrice,
+          lastDate,
+        });
+
+      } catch (error) {
+        results.push({
+          ticker,
+          message: `Error al obtener datos para ${ticker}: ${error.message}`,
+        });
+      }
+    }
+
+    return results;
+  }
   // Función para obtener datos históricos (usada por el endpoint de señales)
   async getHistoricalData(ticker: string, isB3: boolean): Promise<any> {
     if (isB3) {
@@ -26,79 +164,11 @@ export class MarketService {
         '1d',
       );
     } else {
-      return await this.getHistoricalDataFromYahoo(
-        ticker,
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Últimos 30 días
-        new Date(),
-        '1d',
-      );
+      // Logica para Yahoo Finance (sin implementación)
+      throw new Error('Funcionalidad no implementada para Yahoo Finance');
     }
   }
 
-  // Endpoint de señales diarias
-  // Endpoint de señales diarias
-async getDailySignals(tickers: string[]): Promise<any[]> {
-  const results = [];
-
-  for (const ticker of tickers) {
-    try {
-      const isB3 = ticker.endsWith('.SA');
-
-      const { historicalData, currentPrice, lastDate } = isB3
-        ? await this.getHistoricalDataFromBrapi(
-            ticker,
-            '1mo', // Último mes
-            '1d',
-          )
-        : await this.getHistoricalDataFromYahoo(
-            ticker,
-            new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Últimos 30 días
-            new Date(),
-            '1d',
-          );
-
-      // Debugging: Agregar log para revisar los datos históricos obtenidos.
-      console.log(`[getDailySignals] Ticker: ${ticker}, Historical Data:`, historicalData);
-      console.log(`[getDailySignals] Ticker: ${ticker}, Current Price:`, currentPrice);
-
-      // Reducción del requisito de datos históricos para permitir análisis
-      if (!historicalData || historicalData.length < 15) {
-        results.push({
-          ticker,
-          message: isB3
-            ? 'BRAPI puede tener datos limitados para esta acción brasileña.'
-            : 'Datos insuficientes para el análisis.',
-        });
-        continue;
-      }
-
-      // Añadir el precio actual al inicio de la lista de precios para el análisis
-      const prices = [...historicalData.map((d) => d.price), currentPrice];
-
-      // Realizar análisis de señales con los datos disponibles
-      const signals = IndicatorsStrategy.analyzeSignals(prices);
-
-      results.push({
-        ticker,
-        buy: signals.buy,
-        sell: signals.sell,
-        currentPrice,
-        lastDate,
-      });
-
-    } catch (error) {
-      results.push({
-        ticker,
-        message: `Error al obtener datos para ${ticker}: ${error.message}`,
-      });
-    }
-  }
-
-  return results;
-}
-
-
-  // Función para obtener datos históricos desde BRAPI
   async getHistoricalDataFromBrapi(
     ticker: string,
     range: string,
@@ -176,119 +246,5 @@ async getDailySignals(tickers: string[]): Promise<any[]> {
         `Error al obtener datos históricos para ${ticker} de BRAPI: ${error.message}`,
       );
     }
-  }
-
-  // Función para obtener datos históricos desde Yahoo Finance
-  async getHistoricalDataFromYahoo(
-    ticker: string,
-    startDate: Date,
-    endDate: Date,
-    interval: Interval,
-  ): Promise<any> {
-    try {
-      const data = await yahooFinance.historical(ticker, {
-        period1: startDate,
-        period2: endDate,
-        interval,
-      });
-
-      if (!data || data.length === 0) {
-        throw new Error(
-          `No hay datos históricos disponibles para ${ticker} en Yahoo Finance.`,
-        );
-      }
-
-      const historicalData = data
-        .map((item) => ({
-          date: item.date,
-          price: item.close,
-        }))
-        .sort((a, b) => a.date.getTime() - b.date.getTime()); // Orden ascendente
-
-      const currentPrice = data[data.length - 1].close;
-      const lastDate = data[data.length - 1].date;
-
-      return {
-        historicalData,
-        currentPrice,
-        lastDate,
-      };
-    } catch (error) {
-      throw new Error(
-        `Error al obtener datos históricos para ${ticker} de Yahoo Finance: ${error.message}`,
-      );
-    }
-  }
-
-  // Endpoint de backtesting
-  async runBacktest(
-    tickers: string[],
-    initialAmount: number,
-    startDate: string,
-    endDate: string,
-    interval: string,
-    strategy: string,
-    takeProfit: number,
-    stopLoss: number,
-  ): Promise<any[]> {
-    const results = [];
-    const validIntervals: Interval[] = ['1d', '1wk', '1mo'];
-    if (!validIntervals.includes(interval as Interval)) {
-      throw new Error(
-        `Intervalo inválido: ${interval}. Los intervalos válidos son: ${validIntervals.join(
-          ', ',
-        )}`,
-      );
-    }
-    const intervalCasted = interval as Interval;
-
-    // Calcular el rango basado en startDate y endDate
-    const dateDiff = new Date(endDate).getTime() - new Date(startDate).getTime();
-    const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
-    let range = '';
-    if (daysDiff <= 5) range = '5d';
-    else if (daysDiff <= 30) range = '1mo';
-    else if (daysDiff <= 90) range = '3mo';
-    else if (daysDiff <= 180) range = '6mo';
-    else if (daysDiff <= 365) range = '1y';
-    else range = '1y'; // Máximo permitido por el plan
-
-    for (const ticker of tickers) {
-      const isB3 = ticker.endsWith('.SA');
-
-      try {
-        const { historicalData } = isB3
-          ? await this.getHistoricalDataFromBrapi(ticker, range, intervalCasted)
-          : await this.getHistoricalDataFromYahoo(
-              ticker,
-              new Date(startDate),
-              new Date(endDate),
-              intervalCasted,
-            );
-
-        console.log(
-          `[runBacktest] Ticker: ${ticker}, Historical Data Points: ${historicalData.length}`,
-        );
-
-        if (!historicalData || historicalData.length === 0) {
-          results.push({
-            ticker,
-            message: 'Datos insuficientes para el backtest.',
-          });
-          continue;
-        }
-
-        // Lógica de backtesting...
-        // Añadir logs aquí si necesitas verificar algún comportamiento específico durante el proceso
-
-      } catch (error) {
-        results.push({
-          ticker,
-          message: `Error al obtener datos para ${ticker}: ${error.message}`,
-        });
-      }
-    }
-
-    return results;
   }
 }

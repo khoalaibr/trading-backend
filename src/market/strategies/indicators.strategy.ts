@@ -1,16 +1,32 @@
 // src/market/strategies/indicators.strategy.ts
 export class IndicatorsStrategy {
   static analyzeSignals(historicalData: number[]): { buy: boolean; sell: boolean } {
-    if (historicalData.length < 20) return { buy: false, sell: false };
+    // Calculamos el periodo con la menor longitud entre los datos históricos y 14 para permitir un análisis más temprano
+    const period = Math.min(historicalData.length, 14);
+    
+    // Asegurarse de que haya suficientes datos para calcular
+    if (period < 10) {
+        console.log(`[analyzeSignals] Datos insuficientes, periodo: ${period}`);
+        return { buy: false, sell: false };
+    }
 
     const price = historicalData[0];
-    const sma = this.calculateSMA(historicalData, 14);
-    const rsi = this.calculateRSI(historicalData, 14);
-    const { upper, lower } = this.calculateBollingerBands(historicalData, 20);
+    const sma = this.calculateSMA(historicalData, period);
+    const rsi = this.calculateRSI(historicalData, Math.min(historicalData.length, 14));
+    const { upper, lower } = this.calculateBollingerBands(historicalData, period);
+
+    // Agregar registros de cada indicador para ayudar en la depuración
+    console.log(`[analyzeSignals] Price: ${price}, SMA(${period}): ${sma}, RSI(14): ${rsi}, Bollinger Bands - Upper: ${upper}, Lower: ${lower}`);
+
+    const buyCondition = price < lower && rsi < 40;
+    const sellCondition = price > upper && rsi > 60;
+
+    // Mostrar las condiciones que evalúan a buy y sell
+    console.log(`[analyzeSignals] Buy Condition: ${buyCondition}, Sell Condition: ${sellCondition}`);
 
     return {
-      buy: price < lower && rsi < 40,
-      sell: price > upper && rsi > 60,
+        buy: buyCondition,
+        sell: sellCondition,
     };
   }
 
@@ -50,3 +66,5 @@ export class IndicatorsStrategy {
     };
   }
 }
+
+export default IndicatorsStrategy;

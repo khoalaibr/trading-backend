@@ -6,21 +6,13 @@ export class RunBacktestDto {
   @IsNotEmpty()
   tickers: string;
 
-  @IsNumberString()
-  @IsNotEmpty()
-  initialAmount: string;
-
-  @IsString()
-  @IsNotEmpty()
-  startDate: string;
-
-  @IsString()
-  @IsNotEmpty()
-  endDate: string;
-
   @IsString()
   @IsOptional()
   interval?: string;
+
+  @IsString()
+  @IsOptional()
+  range?: string; 
 
   @IsString()
   @IsOptional()
